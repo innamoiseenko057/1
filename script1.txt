@@ -1,0 +1,552 @@
+﻿import os
+import requests
+from datetime import datetime, timedelta, timezone
+
+# Константы
+URL = 'https://ssp-api.propellerads.com/v5/adv/campaigns/'
+HEADERS = {'accept': 'application/json', 'Authorization': 'Bearer 1cb5ca824b67ca82c80081633bcdcf4dd40149df6762a31a'}
+
+# Пути к файлам
+base_path = os.path.abspath(os.path.join(os.path.dirname(__file__), 'Result files'))
+file_paths = {
+    'campaignid': os.path.join(base_path, 'campaignid.txt'),
+    'start_date': os.path.join(base_path, 'Start_Date_campaign.txt'),
+    'current_date': os.path.join(base_path, 'Current_Date_in_Moscow.txt'),
+    'result': os.path.join(base_path, 'script_checker.txt'),
+}
+
+# Функция для получения текущей даты в GMT+3
+def get_current_date_gmt3():
+    return datetime.now(timezone(timedelta(hours=3))).strftime('%Y-%m-%d')
+
+def read_file(file_path):
+    try:
+        with open(file_path, 'r') as file:
+            return file.read().strip()
+    except FileNotFoundError:
+        return None
+
+def write_to_file(file_path, data, mode='w'):
+    with open(file_path, mode) as file:
+        file.write(data)
+
+def create_file(file_path):
+    open(file_path, 'a').close()
+
+def main():
+    # Создание файла script_checker.txt, если его нет
+    create_file(file_paths['result'])
+
+    campaignid = read_file(file_paths['campaignid'])
+
+    if not campaignid:
+        print("Ошибка: Невозможно продолжить без действительного 'campaignid'.")
+        return
+
+    url = f'{URL}{campaignid}'
+    headers = HEADERS
+
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as err:
+        print(f"Ошибка запроса: {err}")
+        return
+
+    start_date = response.json().get('started_at', 'N/A')
+    current_date_gmt3 = get_current_date_gmt3()
+
+    # Сохранение даты начала в файл
+    write_to_file(file_paths['start_date'], start_date)
+
+    # Сохранение текущей даты (без времени) в GMT+3 в отдельный файл
+    write_to_file(file_paths['current_date'], current_date_gmt3)
+
+    print(f'Дата начала кампании: {start_date}')
+    print(f'Текущая дата в Москве: {current_date_gmt3}')
+    print('Даты сохранены в файлах: Start_Date_campaign.txt и Current_Date_in_Moscow.txt')
+
+    # Проверка, не содержится ли '1' в файле
+    content = read_file(file_paths['result'])
+
+    if '1' not in content:
+        # Запись '1' в файл (режим добавления 'a') только если файл не содержит '1'
+        write_to_file(file_paths['result'], '1\n', 'a')
+
+if __name__ == "__main__":
+    main()
+
+
+import os
+import requests
+
+# Определение констант
+CAMPAIGN_ID_FILE = "campaignid.txt"
+START_DATE_FILE = "Start_Date_campaign.txt"
+CURRENT_DATE_FILE = "Current_Date_in_Moscow.txt"
+STATUS_FILE = "clicks_status.txt"
+CAMPAIGN_STATUS_FILE = "campaign_status.txt"
+RESULT_FILES_FOLDER = "Result files"
+SCRIPT_CHECKER_FILE = "script_checker.txt"
+
+# Получаем текущий рабочий каталог, относительно которого будем строить пути
+BASE_PATH = os.path.dirname(os.path.abspath(__file__))
+RESULT_FILES_FOLDER_PATH = os.path.join(BASE_PATH, RESULT_FILES_FOLDER)
+URL_GET_CLICKS = "https://ssp-api.propellerads.com/v5/adv/statistics"
+TOKEN = "1cb5ca824b67ca82c80081633bcdcf4dd40149df6762a31a"
+
+# Функция для чтения файла или возврата None, если файл не найден
+def read_file(file_path):
+    try:
+        with open(file_path, 'r') as file:
+            return file.read().strip()
+    except FileNotFoundError:
+        print(f"Ошибка: Файл не найден по пути {file_path}")
+        return None
+
+# Функция для записи данных в файл
+def write_file(file_path, data, mode='w'):
+    with open(file_path, mode) as file:
+        file.write(str(data))
+
+# Функция для выполнения API-запросов
+def make_api_request(url, method='POST', json_data=None):
+    headers = {
+        "Authorization": f"Bearer {TOKEN}",
+        "Content-Type": "application/json",
+        "accept": "application/json"
+    }
+    try:
+        response = (requests.post(url, headers=headers, json=json_data)
+                    if method == 'POST' else requests.put(url, json=json_data, headers=headers))
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"Ошибка в API-запросе: {e}")
+        return None
+
+# Функция для получения целого числа из файла или возврата 0, если файл не найден
+def read_int_file(file_path):
+    try:
+        with open(file_path, 'r') as file:
+            return int(file.read().strip())
+    except FileNotFoundError:
+        return 0
+
+# Функция для обновления файла с общим количеством кликов
+def update_total_clicks_file(file_path, total_clicks):
+    write_file(file_path, total_clicks)
+
+# Получаем campaign_id из файла
+campaign_id = read_int_file(os.path.join(RESULT_FILES_FOLDER_PATH, CAMPAIGN_ID_FILE))
+
+# Получаем start_date и current_date из файлов
+start_date = read_file(os.path.join(RESULT_FILES_FOLDER_PATH, START_DATE_FILE))
+current_date = read_file(os.path.join(RESULT_FILES_FOLDER_PATH, CURRENT_DATE_FILE))
+
+# Получаем общее количество кликов на последней остановке
+total_clicks_at_last_stop = read_int_file(os.path.join(RESULT_FILES_FOLDER_PATH, STATUS_FILE))
+
+# Обновляем общее количество кликов в файле
+update_total_clicks_file(os.path.join(RESULT_FILES_FOLDER_PATH, STATUS_FILE), total_clicks_at_last_stop)
+
+# Подготавливаем данные для API-запроса
+day_from = f"{start_date} 00:00:00" if start_date else None
+day_to = f"{current_date} 23:59:59" if current_date else None
+data_get_clicks = {
+    "group_by": ["zone_id"],
+    "day_from": day_from,
+    "day_to": day_to,
+    "campaign_id": [campaign_id] if campaign_id else None
+}
+
+# Делаем API-запрос для получения кликов
+response_get_clicks = make_api_request(URL_GET_CLICKS, json_data=data_get_clicks)
+
+# Обрабатываем ответ API
+if response_get_clicks:
+    total_impressions = sum(item.get("impressions", 0) for item in response_get_clicks)
+    print(f"Общее количество кликов: {total_impressions}")
+
+    # Проверяем, следует ли остановить кампанию
+    impressions_diff = total_impressions - total_clicks_at_last_stop
+    if impressions_diff >= 1000:
+        campaign_status = "Остановка кампании..."
+
+        # Останавливаем кампанию
+        url_stop_campaign = 'https://ssp-api.propellerads.com/v5/adv/campaigns/stop'
+        data_stop_campaign = {"campaign_ids": [campaign_id]}
+        response_stop_campaign = make_api_request(url_stop_campaign, method='PUT', json_data=data_stop_campaign)
+
+        campaign_status = (f"Campaign stopped, click > 1000."
+                           if response_stop_campaign
+                           else f"Ошибка при остановке кампании: {response_stop_campaign['status_code']}\n{response_stop_campaign['text']}")
+
+        # Записываем текущее количество кликов в файл
+        update_total_clicks_file(os.path.join(RESULT_FILES_FOLDER_PATH, STATUS_FILE), total_impressions)
+    else:
+        campaign_status = "Campaign working, clicks < 1000"
+else:
+    campaign_status = f"Ошибка при получении данных: {response_get_clicks['status_code']} - {response_get_clicks['text']}"
+
+# Записываем статус кампании в файл
+write_file(os.path.join(RESULT_FILES_FOLDER_PATH, CAMPAIGN_STATUS_FILE), campaign_status)
+
+# Выводим статус кампании в консоль
+print(campaign_status)
+
+# Проверка, не содержится ли '2' в файле script_checker.txt
+script_checker_path = os.path.join(RESULT_FILES_FOLDER_PATH, SCRIPT_CHECKER_FILE)
+script_checker_content = read_file(script_checker_path)
+
+if '2' not in script_checker_content:
+    # Запись '2' в файл (режим добавления 'a') только если файл не содержит '2'
+    write_file(script_checker_path, '2\n', 'a')
+    print("Число '2' успешно добавлено во вторую строку файла script_checker.txt.")
+else:
+    print("Число '2' уже присутствует во второй строке файла script_checker.txt.")
+
+
+import os
+import requests
+import json
+import logging
+
+# Constants
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+RESULT_PATH = os.path.join(SCRIPT_DIR, 'Result files')
+URL = 'https://ssp-api.propellerads.com/v5/adv/statistics'
+API_TOKEN = 'Bearer 1cb5ca824b67ca82c80081633bcdcf4dd40149df6762a31a'
+
+HEADERS = {
+    'accept': 'application/json',
+    'Authorization': API_TOKEN,
+    'Content-Type': 'application/json',
+}
+
+logging.basicConfig(level=logging.ERROR)  # Установите уровень логирования, например, logging.INFO
+
+def read_file(file_path):
+    try:
+        with open(file_path, 'r') as file:
+            return file.read().strip()
+    except FileNotFoundError as e:
+        logging.error(f"Файл {file_path} не найден: {e}")
+        return None
+    except Exception as e:
+        logging.error(f"Ошибка при чтении файла {file_path}: {e}")
+        return None
+
+def write_to_file(file_path, data, mode='w'):
+    try:
+        with open(file_path, mode) as file:
+            file.write(data)
+    except Exception as e:
+        logging.error(f"Ошибка при записи в файл {file_path}: {e}")
+
+def get_propellerads_statistics(day_from, day_to, campaign_id):
+    data = {
+        "group_by": ["zone_id"],
+        "day_from": day_from,
+        "day_to": day_to,
+        "campaign_id": [int(campaign_id)]
+    }
+
+    try:
+        response = requests.post(URL, headers=HEADERS, data=json.dumps(data))
+        response.raise_for_status()
+
+        response_data = response.json()
+        result_string = ""
+
+        if isinstance(response_data, list):
+            for item in response_data:
+                zone = item.get('zone_id', '')
+                spent = item.get('spent', '')
+                impressions = item.get('impressions', '')
+                result_string += f"zone {zone} spent {spent} impressions {impressions}\n"
+        else:
+            logging.error("Неверный формат данных от API PropellerAds.")
+
+        result_file_path = os.path.join(RESULT_PATH, "propellerads_statistics.txt")
+        with open(result_file_path, "w") as output_file:
+            output_file.write(result_string)
+
+        logging.info(f"Статистика успешно получена и сохранена в {result_file_path}")
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Ошибка запроса: {e}")
+    except requests.exceptions.HTTPError as e:
+        logging.error(f"Ошибка HTTP: {e}")
+    except json.JSONDecodeError as e:
+        logging.error(f"Ошибка при декодировании JSON: {e}")
+    except Exception as e:
+        logging.error(f"Произошла ошибка: {e}")
+
+def add_number_to_file(file_path, number):
+    content = read_file(file_path)
+
+    if str(number) not in content:
+        write_to_file(file_path, f"{number}\n", 'a')
+        logging.info(f"Число '{number}' успешно добавлено в файл {file_path}.")
+    else:
+        logging.info(f"Число '{number}' уже присутствует в файле {file_path}.")
+
+# File paths
+day_from_path = os.path.join(RESULT_PATH, "Start_Date_campaign.txt")
+day_to_path = os.path.join(RESULT_PATH, "Current_Date_in_Moscow.txt")
+campaign_id_path = os.path.join(RESULT_PATH, "campaignid.txt")
+script_checker_path = os.path.join(RESULT_PATH, "script_checker.txt")
+
+# Read data from files
+day_from = read_file(day_from_path)
+day_to = read_file(day_to_path)
+campaign_id = read_file(campaign_id_path)
+
+# Check for data and call the function
+if day_from and day_to and campaign_id:
+    get_propellerads_statistics(day_from, day_to, campaign_id)
+else:
+    logging.error("Не удалось получить необходимые данные (даты или ID кампании).")
+
+# Check and write '3' to script_checker.txt
+add_number_to_file(script_checker_path, 3)
+
+
+import os
+import requests
+
+BASE_DIRECTORY = os.path.dirname(os.path.abspath(__file__))
+RESULT_FILES_DIRECTORY = os.path.join(BASE_DIRECTORY, 'Result files')
+API_URL = 'https://api.partners.house/v1/statistics'
+API_KEY = 'e836b7a49ea84dcdb1a4d08eaf3a8999'
+
+def read_data_from_file(file_name):
+    file_path = os.path.join(RESULT_FILES_DIRECTORY, file_name)
+    try:
+        with open(file_path, 'r') as file:
+            return file.read().strip()
+    except FileNotFoundError as e:
+        raise FileNotFoundError(f"Файл не найден по пути {file_path}: {e}")
+    except Exception as e:
+        raise Exception(f"Ошибка при чтении файла {file_path}: {e}")
+
+def send_request(url, params, headers, session):
+    try:
+        response = session.get(url, params=params, headers=headers)
+        response.raise_for_status()
+        return response.json().get('data', [])
+    except requests.RequestException as e:
+        print(f"Ошибка при выполнении запроса: {e}")
+        return []
+
+def format_output(row):
+    return f"zone {row.get('firstColumn', '')} subscriptions {row.get('subscriptions', '')} rsIncome {row.get('rsIncome', '')}"
+
+def write_to_file(file_path, lines):
+    with open(file_path, 'w', encoding='utf-8') as output_file:
+        output_file.write('\n'.join(lines))
+        print(f"Данные успешно сохранены в {file_path}")
+
+def append_number_to_file(file_path, number):
+    content = read_data_from_file(file_path)
+    if str(number) not in content:
+        with open(file_path, 'a') as file:
+            file.write(f'{number}\n')
+            print(f"Число '{number}' успешно добавлено в файл {file_path}.")
+    else:
+        print(f"Число '{number}' уже присутствует в файле {file_path}.")
+
+def get_campaign_statistics(url, params, headers, session):
+    all_data = []
+    page = 1
+
+    while True:
+        params['page'] = str(page)
+        response_data = send_request(url, params, headers, session)
+        all_data.extend(response_data)
+
+        if not response_data:
+            break
+
+        page += 1
+
+    return all_data
+
+def main():
+    session = requests.Session()
+
+    date_from = read_data_from_file("Start_Date_campaign.txt")
+    date_to = read_data_from_file("Current_Date_in_Moscow.txt")
+    campaign_id = read_data_from_file("campaignid.txt")
+
+    if date_from and date_to and campaign_id:
+        params = {
+            'date-from': date_from,
+            'date-to': date_to,
+            'group-by': 'sub2',
+            'sub4': campaign_id,
+        }
+
+        headers = {
+            'Accept': 'application/json',
+            'Authorization': API_KEY
+        }
+
+        try:
+            all_data = get_campaign_statistics(API_URL, params, headers, session)
+
+            if all_data:
+                output_lines = [format_output(row) for row in all_data]
+                output_file_path = os.path.join(RESULT_FILES_DIRECTORY, 'partners.house_statistic.txt')
+                write_to_file(output_file_path, output_lines)
+                
+                script_checker_path = os.path.join(RESULT_FILES_DIRECTORY, 'script_checker.txt')
+                append_number_to_file(script_checker_path, 4)
+        except Exception as e:
+            print(f"Произошла ошибка: {e}")
+    else:
+        print("Невозможно продолжить без действительных дат или идентификатора кампании.")
+
+if __name__ == "__main__":
+    main()
+
+
+import os
+
+def read_data(file_path):
+    data_dict = {}
+    with open(file_path, 'r') as file:
+        for line in file:
+            if line.startswith('zone'):
+                _, zone, key, value = line.split(None, 3)
+                data_dict.setdefault(zone, {})[key] = value.strip()
+    return data_dict
+
+def merge_data(data1, data2):
+    return {zone: {**data1.get(zone, {}), **data2.get(zone, {})} for zone in set(data1) | set(data2)}
+
+def write_merged_data(merged_data, output_file):
+    with open(output_file, 'w') as merged_file:
+        for zone, values in merged_data.items():
+            values_str = ' '.join(f"{key} {value}" for key, value in values.items())
+            merged_file.write(f"zone {zone} {values_str}\n")
+
+def append_number_to_file(file_path, number):
+    with open(file_path, 'r') as file:
+        if str(number) not in file.read():
+            with open(file_path, 'a') as append_file:
+                append_file.write(f'{number}\n')
+                print(f"Число '{number}' успешно добавлено в файл {file_path}.")
+        else:
+            print(f"Число '{number}' уже присутствует в файле {file_path}.")
+
+if __name__ == "__main__":
+    # Используйте относительные пути
+    base_path = 'Result files'
+    
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    file1_path = os.path.join(script_dir, base_path, 'partners.house_statistic.txt')
+    file2_path = os.path.join(script_dir, base_path, 'propellerads_statistics.txt')
+    output_file_path = os.path.join(script_dir, base_path, 'filter_statistics.txt')
+    script_checker_path = os.path.join(script_dir, base_path, 'script_checker.txt')
+
+    data1 = read_data(file1_path)
+    data2 = read_data(file2_path)
+
+    merged_data = merge_data(data1, data2)
+    write_merged_data(merged_data, output_file_path)
+
+    # Добавление цифры 5 в новую строку в файл script_checker.txt
+    append_number_to_file(script_checker_path, 5)
+
+
+import requests
+import os
+import time
+
+# Задайте абсолютный путь к папке, где хранятся файлы
+base_path = os.path.dirname(os.path.abspath(__file__))
+result_files_path = os.path.join(base_path, 'Result files')
+
+def process_line(parts, field):
+    return parts[parts.index(field) + 1]
+
+def read_values(file_path):
+    with open(os.path.join(result_files_path, file_path), 'r') as file:
+        return [line.strip() for line in file]
+
+def append_values(file_path, values):
+    existing_values = read_values(file_path)
+
+    # Исключаем дубли
+    new_values = set(values) - set(existing_values)
+
+    if new_values:
+        with open(os.path.join(result_files_path, file_path), 'a') as file:
+            file.write('\n'.join(map(str, new_values)) + '\n')
+
+def get_field_value(parts, field):
+    return parts[parts.index(field) + 1]
+
+def main():
+    lines = []
+
+    with open(os.path.join(result_files_path, 'filter_statistics.txt'), 'r') as input_file:
+        lines = input_file.readlines()
+
+    black_values = []
+
+    with open(os.path.join(result_files_path, 'black.txt'), 'w') as black_output_file, open(os.path.join(result_files_path, 'filter_statistics_updated.txt'), 'a') as filter_output_file:
+        for line in lines:
+            parts = line.split()
+
+            if all(field in parts for field in ['zone', 'subscriptions', 'impressions']):
+                zone_value = get_field_value(parts, 'zone')
+                subscriptions_value = int(get_field_value(parts, 'subscriptions'))
+                impressions_value = int(get_field_value(parts, 'impressions'))
+
+                if impressions_value >= 45 and subscriptions_value == 0:
+                    black_values.append(zone_value)
+                elif impressions_value >= 65 and subscriptions_value != 0 and (spent_value := float(get_field_value(parts, 'spent'))) / subscriptions_value >= 0.007:
+                    black_values.append(zone_value)
+
+                filter_output_file.write(line)
+
+        append_values('black.txt', black_values)
+
+    os.replace(os.path.join(result_files_path, 'filter_statistics_updated.txt'), os.path.join(result_files_path, 'filter_statistics.txt'))
+
+    campaign_id = read_values('campaignid.txt')[0]
+    black_values = read_values('black.txt')
+
+    url = f'https://ssp-api.propellerads.com/v5/adv/campaigns/{campaign_id}/targeting/exclude/zone'
+    headers = {
+        'accept': 'application/json',
+        'Authorization': 'Bearer 1cb5ca824b67ca82c80081633bcdcf4dd40149df6762a31a',
+        'Content-Type': 'application/json',
+    }
+
+    data = {'zone': black_values}
+
+    response = requests.put(url, headers=headers, json=data)
+
+    time.sleep(900)  # Подождать 15 минут
+
+    url = 'https://ssp-api.propellerads.com/v5/adv/campaigns/play'
+    headers = {
+        'accept': 'application/json',
+        'Authorization': 'Bearer 1cb5ca824b67ca82c80081633bcdcf4dd40149df6762a31a',
+        'Content-Type': 'application/json',
+    }
+
+    data = {"campaign_ids": [campaign_id]}
+
+    response = requests.put(url, json=data, headers=headers)
+
+    # Добавление цифры 6 в новую строку в файл script_checker.txt
+    script_checker_path = os.path.join(result_files_path, 'script_checker.txt')
+    with open(script_checker_path, 'a') as script_checker_file:
+        script_checker_file.write('6\n')
+
+if __name__ == "__main__":
+    main()
